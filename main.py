@@ -6,11 +6,6 @@ from fastapi.responses import JSONResponse
 
 EMAIL = "24f1000019@ds.study.iitm.ac.in"
 
-ALLOWED_ORIGINS = {
-    "https://app-gz6rby.example.com",
-    "https://exam.sanand.workers.dev",
-}
-
 RATE_LIMIT = 14
 WINDOW_SECONDS = 10
 
@@ -21,17 +16,18 @@ _buckets = defaultdict(deque)
 @app.middleware("http")
 async def combined_middleware(request: Request, call_next):
     origin = request.headers.get("origin")
-
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = request_id
+
+    allow_origin = origin if origin else "*"
 
     if request.method == "OPTIONS":
         resp = JSONResponse(content={}, status_code=200)
         resp.headers["X-Request-ID"] = request_id
-        if origin in ALLOWED_ORIGINS:
-            resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "*"
+        resp.headers["Access-Control-Allow-Origin"] = allow_origin
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "*"
+        resp.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
         return resp
 
     client_id = request.headers.get("X-Client-Id", "anonymous")
@@ -44,16 +40,15 @@ async def combined_middleware(request: Request, call_next):
         resp = JSONResponse(content={"detail": "Too Many Requests"}, status_code=429)
         resp.headers["X-Request-ID"] = request_id
         resp.headers["Retry-After"] = "1"
-        if origin in ALLOWED_ORIGINS:
-            resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Origin"] = allow_origin
+        resp.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
         return resp
 
     bucket.append(now)
-
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
-    if origin in ALLOWED_ORIGINS:
-        response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Origin"] = allow_origin
+    response.headers["Access-Control-Expose-Headers"] = "X-Request-ID"
     return response
 
 
