@@ -1,26 +1,18 @@
 import time
 import uuid
-from collections import defaultdict, deque
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 EMAIL = "24f1000019@ds.study.iitm.ac.in"
-
-EXAM_PAGE_ORIGINS = {
-    "https://app-gz6rby.example.com",
-    "https://exam.sanand.workers.dev",
-}
-
-BUCKET_SIZE = 14
-WINDOW_SECONDS = 10
+ALLOWED_ORIGIN = "https://YOUR-ASSIGNED-ORIGIN.example.com"  # replace with your assigned origin
 
 app = FastAPI()
-
-request_buckets = defaultdict(deque)
 
 
 @app.middleware("http")
 async def combined_middleware(request: Request, call_next):
+    start = time.perf_counter()
+
     incoming_id = request.headers.get("X-Request-ID")
     request_id = incoming_id if incoming_id else str(uuid.uuid4())
     request.state.request_id = request_id
@@ -28,44 +20,51 @@ async def combined_middleware(request: Request, call_next):
     origin = request.headers.get("origin")
 
     if request.method == "OPTIONS":
-        if origin in EXAM_PAGE_ORIGINS:
+        if origin == ALLOWED_ORIGIN:
             resp = JSONResponse(content={}, status_code=200)
-            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
             resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
             resp.headers["Access-Control-Allow-Headers"] = "*"
             resp.headers["Vary"] = "Origin"
         else:
             resp = JSONResponse(content={}, status_code=400)
         resp.headers["X-Request-ID"] = request_id
+        resp.headers["X-Process-Time"] = f"{time.perf_counter() - start:.6f}"
         return resp
-
-    client_id = request.headers.get("X-Client-Id", "anonymous")
-    now = time.time()
-    dq = request_buckets[client_id]
-
-    while dq and now - dq[0] > WINDOW_SECONDS:
-        dq.popleft()
-
-    if len(dq) >= BUCKET_SIZE:
-        retry_after = max(1, int(WINDOW_SECONDS - (now - dq[0])))
-        resp = JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
-        resp.headers["Retry-After"] = str(retry_after)
-        resp.headers["X-Request-ID"] = request_id
-        if origin in EXAM_PAGE_ORIGINS:
-            resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Vary"] = "Origin"
-        return resp
-
-    dq.append(now)
 
     response = await call_next(request)
+
     response.headers["X-Request-ID"] = request_id
-    if origin in EXAM_PAGE_ORIGINS:
-        response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["X-Process-Time"] = f"{time.perf_counter() - start:.6f}"
+
+    if origin == ALLOWED_ORIGIN:
+        response.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
         response.headers["Vary"] = "Origin"
+
     return response
 
 
-@app.get("/ping")
-async def ping(request: Request):
-    return {"email": EMAIL, "request_id": request.state.request_id}
+@app.get("/stats")
+async def stats(values: str):
+    nums = [int(v.strip()) for v in values.split(",") if v.strip() != ""]
+
+    if not nums:
+        return JSONResponse(
+            content={"email": EMAIL, "count": 0, "sum": 0, "min": None, "max": None, "mean": 0},
+            status_code=200,
+        )
+
+    count = len(nums)
+    total = sum(nums)
+    mn = min(nums)
+    mx = max(nums)
+    mean = total / count
+
+    return {
+        "email": EMAIL,
+        "count": count,
+        "sum": total,
+        "min": mn,
+        "max": mx,
+        "mean": mean,
+    }
