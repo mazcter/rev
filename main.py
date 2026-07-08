@@ -6,8 +6,11 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 EMAIL = "24f1000019@ds.study.iitm.ac.in"
-ALLOWED_ORIGIN = "https://app-gz6rby.example.com"
-EXAM_PAGE_ORIGINS = {ALLOWED_ORIGIN}  # add exam page origin here if given separately
+
+EXAM_PAGE_ORIGINS = {
+    "https://app-gz6rby.example.com",
+    "https://exam.sanand.workers.dev",
+}
 
 BUCKET_SIZE = 14
 WINDOW_SECONDS = 10
